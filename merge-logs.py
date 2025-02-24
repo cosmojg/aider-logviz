@@ -149,7 +149,7 @@ def main() -> None:
 
     # Write all events to the output file
     if not all_events:
-        print("Error: No log events found.")
+        print("Error: No events logged.")
         sys.exit(1)  # Exit with error code
     print(f"Writing {len(all_events)} events to {output_file}...")
     with open(output_file, "w") as f:
