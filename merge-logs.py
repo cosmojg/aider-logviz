@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 import json
 import subprocess
+import sys
 from collections import OrderedDict
+from pathlib import Path
 
 
 def run_command(command):
@@ -21,6 +23,43 @@ def run_command(command):
     return stdout
 
 
+def check_repo_exists():
+    """Check if the aider repository exists in the current directory."""
+    repo_path = Path("aider")
+    git_path = repo_path / ".git"
+    return repo_path.exists() and git_path.exists()
+
+
+def clone_repo() -> bool:
+    """Try to clone the aider repository using SSH, then HTTPS if SSH fails."""
+    ssh_url = "git@github.com:Aider-AI/aider.git"
+    https_url = "https://github.com/Aider-AI/aider.git"
+
+    print("Aider repository not found. Attempting to clone...")
+
+    # Try SSH first
+    print(f"Attempting to clone from {ssh_url}...")
+    ssh_command = f"git clone {ssh_url}"
+    ssh_result = run_command(ssh_command)
+
+    if ssh_result is not None:
+        print("Successfully cloned Aider repository over SSH.")
+        return True
+
+    # If SSH fails, try HTTPS
+    print(f"SSH clone failed. Attempting to clone from {https_url}...")
+    https_command = f"git clone {https_url}"
+    https_result = run_command(https_command)
+
+    if https_result is not None:
+        print("Successfully cloned Aider repository over HTTPS.")
+        return True
+
+    # If both fail, return False
+    print("Failed to clone Aider repository. Please clone it manually and try again.")
+    return False
+
+
 def get_file_commits(file_path):
     """Get all commits that modified the specified file."""
     command = f"git --git-dir=aider/.git --work-tree=aider log --pretty=format:%H --follow -- {file_path}"
@@ -37,6 +76,11 @@ def get_file_content_at_commit(commit, file_path):
 
 
 def main() -> None:
+    # Check if aider repository exists, try to clone if it doesn't
+    if not check_repo_exists() and not clone_repo():
+        print("Error: Aider repository is required but could not be cloned.")
+        sys.exit(1)  # Exit with error code
+
     # Define the file path
     file_path = "aider/website/assets/sample-analytics.jsonl"
     output_file = "merged-analytics.jsonl"
@@ -104,6 +148,9 @@ def main() -> None:
     print(f"{n_lines} total lines processed")
 
     # Write all events to the output file
+    if not all_events:
+        print("Error: No log events found.")
+        sys.exit(1)  # Exit with error code
     print(f"Writing {len(all_events)} events to {output_file}...")
     with open(output_file, "w") as f:
         for event in all_events.values():
