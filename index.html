@@ -1,0 +1,949 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Model Usage Visualizer</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <!-- Date-fns for date manipulation -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/date-fns/2.29.3/date-fns.min.js"></script>
+    <style>
+        .chart-container {
+            position: relative;
+            height: 400px;
+            width: 100%;
+            margin-bottom: 30px;
+        }
+        .loading {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 200px;
+            font-size: 1.5rem;
+            color: #666;
+        }
+        /* Custom animation for the spinner */
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            border-left-color: #09f;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+            margin-right: 10px;
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <div class="container mx-auto px-4 py-8">
+        <header class="mb-10">
+            <h1 class="text-3xl font-bold text-center mb-2">AI Assistant Model Usage Analytics</h1>
+            <p class="text-gray-600 text-center">Visualization of model usage patterns from the aider-ai repository</p>
+        </header>
+
+        <div class="file-drop-area mb-8 p-6 border-2 border-dashed border-gray-300 rounded-lg text-center">
+            <p class="mb-2">Drop your sample-analytics.jsonl file here or</p>
+            <input type="file" id="fileInput" accept=".jsonl,.json" class="mb-2">
+            <p class="text-gray-500 text-sm">File should contain JSON events, one per line, like those created by the merge-logs.py script</p>
+        </div>
+
+        <div id="loading" class="loading hidden">
+            <div class="spinner"></div>
+            <span>Processing data...</span>
+        </div>
+
+        <div id="controls" class="mb-8 p-4 bg-white rounded-lg shadow hidden">
+            <div class="flex flex-wrap gap-4 justify-between">
+                <div class="flex-1 min-w-[300px]">
+                    <label for="timeRangeSelect" class="block text-sm font-medium text-gray-700 mb-1">Time Range</label>
+                    <select id="timeRangeSelect" class="w-full p-2 border border-gray-300 rounded-md">
+                        <option value="all">All Time</option>
+                        <option value="7d">Last 7 Days</option>
+                        <option value="30d">Last 30 Days</option>
+                        <option value="90d">Last 90 Days</option>
+                        <option value="custom">Custom Range</option>
+                    </select>
+                </div>
+                <div id="customDateRange" class="flex-1 min-w-[300px] hidden">
+                    <div class="grid grid-cols-2 gap-2">
+                        <div>
+                            <label for="startDate" class="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
+                            <input type="date" id="startDate" class="w-full p-2 border border-gray-300 rounded-md">
+                        </div>
+                        <div>
+                            <label for="endDate" class="block text-sm font-medium text-gray-700 mb-1">End Date</label>
+                            <input type="date" id="endDate" class="w-full p-2 border border-gray-300 rounded-md">
+                        </div>
+                    </div>
+                </div>
+                <div class="flex-1 min-w-[300px]">
+                    <label for="groupBySelect" class="block text-sm font-medium text-gray-700 mb-1">Group By</label>
+                    <select id="groupBySelect" class="w-full p-2 border border-gray-300 rounded-md">
+                        <option value="day">Day</option>
+                        <option value="week">Week</option>
+                        <option value="month">Month</option>
+                    </select>
+                </div>
+                <div class="flex-1 min-w-[300px]">
+                    <label for="modelFilterSelect" class="block text-sm font-medium text-gray-700 mb-1">Filter Models</label>
+                    <select id="modelFilterSelect" class="w-full p-2 border border-gray-300 rounded-md" multiple>
+                        <!-- Will be populated dynamically -->
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <div id="dashboard" class="grid grid-cols-1 md:grid-cols-2 gap-6 hidden">
+            <!-- Summary Stats -->
+            <div class="col-span-1 md:col-span-2 p-6 bg-white rounded-lg shadow">
+                <h2 class="text-xl font-semibold mb-4">Summary Statistics</h2>
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div class="p-4 bg-blue-50 rounded-lg">
+                        <p class="text-sm text-gray-500">Total Events</p>
+                        <p id="totalEvents" class="text-2xl font-bold">0</p>
+                    </div>
+                    <div class="p-4 bg-green-50 rounded-lg">
+                        <p class="text-sm text-gray-500">Unique Models</p>
+                        <p id="uniqueModels" class="text-2xl font-bold">0</p>
+                    </div>
+                    <div class="p-4 bg-purple-50 rounded-lg">
+                        <p class="text-sm text-gray-500">Unique Users</p>
+                        <p id="uniqueUsers" class="text-2xl font-bold">0</p>
+                    </div>
+                    <div class="p-4 bg-yellow-50 rounded-lg">
+                        <p class="text-sm text-gray-500">Date Range</p>
+                        <p id="dateRange" class="text-2xl font-bold">-</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Model Usage Over Time Chart -->
+            <div class="col-span-1 md:col-span-2 p-6 bg-white rounded-lg shadow">
+                <h2 class="text-xl font-semibold mb-4">Model Usage Over Time</h2>
+                <div class="chart-container">
+                    <canvas id="usageOverTimeChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Model Popularity Chart -->
+            <div class="p-6 bg-white rounded-lg shadow">
+                <h2 class="text-xl font-semibold mb-4">Model Popularity</h2>
+                <div class="chart-container">
+                    <canvas id="modelPopularityChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Cost Distribution Chart -->
+            <div class="p-6 bg-white rounded-lg shadow">
+                <h2 class="text-xl font-semibold mb-4">Total Cost by Model</h2>
+                <div class="chart-container">
+                    <canvas id="costDistributionChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Token Usage Chart -->
+            <div class="p-6 bg-white rounded-lg shadow">
+                <h2 class="text-xl font-semibold mb-4">Token Usage by Model</h2>
+                <div class="chart-container">
+                    <canvas id="tokenUsageChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Event Types Chart -->
+            <div class="p-6 bg-white rounded-lg shadow">
+                <h2 class="text-xl font-semibold mb-4">Event Types Distribution</h2>
+                <div class="chart-container">
+                    <canvas id="eventTypesChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Top Models Table -->
+            <div class="col-span-1 md:col-span-2 p-6 bg-white rounded-lg shadow">
+                <h2 class="text-xl font-semibold mb-4">Top Models</h2>
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rank</th>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Model</th>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Usage Count</th>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Usage %</th>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Cost</th>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Avg. Tokens</th>
+                            </tr>
+                        </thead>
+                        <tbody id="topModelsTableBody" class="bg-white divide-y divide-gray-200">
+                            <!-- Will be populated dynamically -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div id="noData" class="p-10 bg-white rounded-lg shadow text-center">
+            <p class="text-xl text-gray-600">Drop your sample-analytics.jsonl file above to visualize model usage patterns</p>
+        </div>
+    </div>
+
+    <script>
+        // Global state
+        let rawData = [];
+        let filteredData = [];
+        let timeRange = 'all';
+        let groupBy = 'day';
+        let selectedModels = [];
+        let charts = {};
+
+        // DOM elements
+        const fileInput = document.getElementById('fileInput');
+        const loadingEl = document.getElementById('loading');
+        const controlsEl = document.getElementById('controls');
+        const dashboardEl = document.getElementById('dashboard');
+        const noDataEl = document.getElementById('noData');
+        const timeRangeSelect = document.getElementById('timeRangeSelect');
+        const customDateRange = document.getElementById('customDateRange');
+        const startDateInput = document.getElementById('startDate');
+        const endDateInput = document.getElementById('endDate');
+        const groupBySelect = document.getElementById('groupBySelect');
+        const modelFilterSelect = document.getElementById('modelFilterSelect');
+        
+        // Summary elements
+        const totalEventsEl = document.getElementById('totalEvents');
+        const uniqueModelsEl = document.getElementById('uniqueModels');
+        const uniqueUsersEl = document.getElementById('uniqueUsers');
+        const dateRangeEl = document.getElementById('dateRange');
+        
+        // Main event handler for file input
+        fileInput.addEventListener('change', handleFileSelect);
+        document.querySelector('.file-drop-area').addEventListener('drop', handleFileDrop);
+        document.querySelector('.file-drop-area').addEventListener('dragover', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            e.currentTarget.classList.add('border-blue-400');
+        });
+        document.querySelector('.file-drop-area').addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            e.currentTarget.classList.remove('border-blue-400');
+        });
+
+        // Control change handlers
+        timeRangeSelect.addEventListener('change', handleTimeRangeChange);
+        startDateInput.addEventListener('change', applyFilters);
+        endDateInput.addEventListener('change', applyFilters);
+        groupBySelect.addEventListener('change', () => {
+            groupBy = groupBySelect.value;
+            applyFilters();
+        });
+        modelFilterSelect.addEventListener('change', () => {
+            selectedModels = Array.from(modelFilterSelect.selectedOptions).map(opt => opt.value);
+            applyFilters();
+        });
+
+        // Prevent default behavior for drag and drop
+        function handleFileDrop(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            e.currentTarget.classList.remove('border-blue-400');
+            
+            if (e.dataTransfer.files.length) {
+                fileInput.files = e.dataTransfer.files;
+                handleFileSelect();
+            }
+        }
+
+        function handleFileSelect() {
+            const file = fileInput.files[0];
+            if (!file) return;
+
+            // Show loading state
+            loadingEl.classList.remove('hidden');
+            noDataEl.classList.add('hidden');
+            dashboardEl.classList.add('hidden');
+            
+            // Read the file
+            const reader = new FileReader();
+            reader.onload = processFileContent;
+            reader.readAsText(file);
+        }
+
+        function processFileContent(e) {
+            const content = e.target.result;
+            rawData = [];
+            
+            // Parse JSONL (line-delimited JSON)
+            const lines = content.split('\n');
+            for (const line of lines) {
+                if (line.trim()) {
+                    try {
+                        const event = JSON.parse(line);
+                        rawData.push(event);
+                    } catch (err) {
+                        console.error('Error parsing JSON line:', err);
+                    }
+                }
+            }
+            
+            console.log(`Loaded ${rawData.length} events`);
+            
+            if (rawData.length === 0) {
+                loadingEl.classList.add('hidden');
+                noDataEl.classList.remove('hidden');
+                return;
+            }
+            
+            // Initialize the dashboard with the data
+            initializeDashboard();
+        }
+
+        function initializeDashboard() {
+            // Sort data by timestamp
+            rawData.sort((a, b) => a.time - b.time);
+            
+            // Populate model filter dropdown
+            populateModelFilter();
+            
+            // Set date range inputs to match the data
+            initializeDateInputs();
+            
+            // Apply initial filters
+            applyFilters();
+            
+            // Show dashboard, hide loading
+            loadingEl.classList.add('hidden');
+            controlsEl.classList.remove('hidden');
+            dashboardEl.classList.remove('hidden');
+            noDataEl.classList.add('hidden');
+        }
+
+        function populateModelFilter() {
+            // Extract unique models
+            const models = new Set();
+            for (const event of rawData) {
+                if (event.properties && event.properties.main_model) {
+                    models.add(event.properties.main_model);
+                }
+            }
+            
+            // Sort models alphabetically
+            const sortedModels = Array.from(models).sort();
+            
+            // Clear existing options
+            modelFilterSelect.innerHTML = '';
+            
+            // Add options for each model
+            for (const model of sortedModels) {
+                const option = document.createElement('option');
+                option.value = model;
+                option.textContent = model;
+                option.selected = true; // Select all by default
+                modelFilterSelect.appendChild(option);
+            }
+            
+            // Update selected models list
+            selectedModels = sortedModels;
+        }
+
+        function initializeDateInputs() {
+            // Find min and max dates in the data
+            const timestamps = rawData.map(item => item.time * 1000); // Convert to milliseconds
+            const minDate = new Date(Math.min(...timestamps));
+            const maxDate = new Date(Math.max(...timestamps));
+            
+            // Set the input values
+            startDateInput.value = formatDateForInput(minDate);
+            endDateInput.value = formatDateForInput(maxDate);
+            
+            // Also set min/max attributes to prevent selecting outside the data range
+            startDateInput.min = formatDateForInput(minDate);
+            startDateInput.max = formatDateForInput(maxDate);
+            endDateInput.min = formatDateForInput(minDate);
+            endDateInput.max = formatDateForInput(maxDate);
+        }
+
+        function formatDateForInput(date) {
+            return date.toISOString().split('T')[0];
+        }
+
+        function handleTimeRangeChange() {
+            timeRange = timeRangeSelect.value;
+            
+            if (timeRange === 'custom') {
+                customDateRange.classList.remove('hidden');
+            } else {
+                customDateRange.classList.add('hidden');
+                
+                // Set date range based on selection
+                const timestamps = rawData.map(item => item.time * 1000);
+                const maxDate = new Date(Math.max(...timestamps));
+                let startDate = new Date(maxDate);
+                
+                switch (timeRange) {
+                    case '7d':
+                        startDate.setDate(startDate.getDate() - 7);
+                        break;
+                    case '30d':
+                        startDate.setDate(startDate.getDate() - 30);
+                        break;
+                    case '90d':
+                        startDate.setDate(startDate.getDate() - 90);
+                        break;
+                    case 'all':
+                    default:
+                        startDate = new Date(Math.min(...timestamps));
+                        break;
+                }
+                
+                startDateInput.value = formatDateForInput(startDate);
+                endDateInput.value = formatDateForInput(maxDate);
+            }
+            
+            applyFilters();
+        }
+
+        function applyFilters() {
+            // Get date range
+            const startDate = new Date(startDateInput.value);
+            startDate.setHours(0, 0, 0, 0);
+            const startTimestamp = startDate.getTime() / 1000;
+            
+            const endDate = new Date(endDateInput.value);
+            endDate.setHours(23, 59, 59, 999);
+            const endTimestamp = endDate.getTime() / 1000;
+            
+            // Filter data by date range and selected models
+            filteredData = rawData.filter(item => {
+                const timestamp = item.time;
+                const isInDateRange = timestamp >= startTimestamp && timestamp <= endTimestamp;
+                
+                // Check if model is selected
+                let isModelSelected = true;
+                if (item.properties && item.properties.main_model) {
+                    isModelSelected = selectedModels.includes(item.properties.main_model);
+                }
+                
+                return isInDateRange && isModelSelected;
+            });
+            
+            // Update the dashboard with filtered data
+            updateDashboard();
+        }
+
+        function updateDashboard() {
+            updateSummaryStats();
+            updateCharts();
+            updateTopModelsTable();
+        }
+
+        function updateSummaryStats() {
+            // Update summary statistics
+            totalEventsEl.textContent = filteredData.length.toLocaleString();
+            
+            // Unique models
+            const models = new Set();
+            for (const event of filteredData) {
+                if (event.properties && event.properties.main_model) {
+                    models.add(event.properties.main_model);
+                }
+            }
+            uniqueModelsEl.textContent = models.size.toLocaleString();
+            
+            // Unique users
+            const users = new Set();
+            for (const event of filteredData) {
+                if (event.user_id) {
+                    users.add(event.user_id);
+                }
+            }
+            uniqueUsersEl.textContent = users.size.toLocaleString();
+            
+            // Date range
+            const startDate = new Date(startDateInput.value);
+            const endDate = new Date(endDateInput.value);
+            const dayDiff = Math.floor((endDate - startDate) / (1000 * 60 * 60 * 24)) + 1;
+            dateRangeEl.textContent = `${dayDiff} days`;
+        }
+
+        function updateCharts() {
+            updateUsageOverTimeChart();
+            updateModelPopularityChart();
+            updateCostDistributionChart();
+            updateTokenUsageChart();
+            updateEventTypesChart();
+        }
+
+        function updateUsageOverTimeChart() {
+            // Group data by time period
+            const timeGroups = groupDataByTime(filteredData, groupBy);
+            
+            // Create datasets for each model
+            const datasets = [];
+            const colors = getColorPalette(Object.keys(timeGroups.modelsByPeriod).length);
+            
+            Object.keys(timeGroups.modelsByPeriod).forEach((model, index) => {
+                const data = [];
+                
+                // Fill in data for each time period
+                for (const period of timeGroups.timeLabels) {
+                    data.push(timeGroups.modelsByPeriod[model][period] || 0);
+                }
+                
+                datasets.push({
+                    label: model,
+                    data: data,
+                    backgroundColor: colors[index % colors.length] + '80', // add transparency
+                    borderColor: colors[index % colors.length],
+                    borderWidth: 1
+                });
+            });
+            
+            // Create/update chart
+            const ctx = document.getElementById('usageOverTimeChart').getContext('2d');
+            
+            if (charts.usageOverTime) {
+                charts.usageOverTime.data.labels = timeGroups.timeLabels;
+                charts.usageOverTime.data.datasets = datasets;
+                charts.usageOverTime.update();
+            } else {
+                charts.usageOverTime = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: timeGroups.timeLabels,
+                        datasets: datasets
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        interaction: {
+                            mode: 'index',
+                            intersect: false,
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                title: {
+                                    display: true,
+                                    text: 'Number of Events'
+                                }
+                            },
+                            x: {
+                                title: {
+                                    display: true,
+                                    text: `Time (${groupBy})`
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        }
+
+        function updateModelPopularityChart() {
+            // Count events by model
+            const modelCounts = {};
+            
+            for (const event of filteredData) {
+                if (event.properties && event.properties.main_model) {
+                    const model = event.properties.main_model;
+                    modelCounts[model] = (modelCounts[model] || 0) + 1;
+                }
+            }
+            
+            // Sort models by count and take top 10
+            const sortedModels = Object.keys(modelCounts)
+                .sort((a, b) => modelCounts[b] - modelCounts[a])
+                .slice(0, 10);
+            
+            const labels = sortedModels;
+            const data = sortedModels.map(model => modelCounts[model]);
+            const colors = getColorPalette(labels.length);
+            
+            // Create/update chart
+            const ctx = document.getElementById('modelPopularityChart').getContext('2d');
+            
+            if (charts.modelPopularity) {
+                charts.modelPopularity.data.labels = labels;
+                charts.modelPopularity.data.datasets[0].data = data;
+                charts.modelPopularity.data.datasets[0].backgroundColor = colors;
+                charts.modelPopularity.update();
+            } else {
+                charts.modelPopularity = new Chart(ctx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            data: data,
+                            backgroundColor: colors,
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                position: 'right',
+                            },
+                            title: {
+                                display: false,
+                                text: 'Model Popularity'
+                            }
+                        }
+                    }
+                });
+            }
+        }
+
+        function updateCostDistributionChart() {
+            // Calculate total cost by model
+            const modelCosts = {};
+            
+            for (const event of filteredData) {
+                if (event.properties && event.properties.main_model && event.properties.cost) {
+                    const model = event.properties.main_model;
+                    const cost = parseFloat(event.properties.cost) || 0;
+                    modelCosts[model] = (modelCosts[model] || 0) + cost;
+                }
+            }
+            
+            // Sort models by cost and take top 10
+            const sortedModels = Object.keys(modelCosts)
+                .sort((a, b) => modelCosts[b] - modelCosts[a])
+                .slice(0, 10);
+            
+            const labels = sortedModels;
+            const data = sortedModels.map(model => modelCosts[model].toFixed(4));
+            const colors = getColorPalette(labels.length);
+            
+            // Create/update chart
+            const ctx = document.getElementById('costDistributionChart').getContext('2d');
+            
+            if (charts.costDistribution) {
+                charts.costDistribution.data.labels = labels;
+                charts.costDistribution.data.datasets[0].data = data;
+                charts.costDistribution.data.datasets[0].backgroundColor = colors;
+                charts.costDistribution.update();
+            } else {
+                charts.costDistribution = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'Total Cost (USD)',
+                            data: data,
+                            backgroundColor: colors,
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        indexAxis: 'y',
+                        scales: {
+                            x: {
+                                beginAtZero: true,
+                                title: {
+                                    display: true,
+                                    text: 'Cost (USD)'
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        }
+
+        function updateTokenUsageChart() {
+            // Calculate average tokens by model
+            const modelTokens = {};
+            const modelCounts = {};
+            
+            for (const event of filteredData) {
+                if (event.properties && event.properties.main_model && event.properties.total_tokens) {
+                    const model = event.properties.main_model;
+                    const tokens = parseInt(event.properties.total_tokens) || 0;
+                    
+                    modelTokens[model] = (modelTokens[model] || 0) + tokens;
+                    modelCounts[model] = (modelCounts[model] || 0) + 1;
+                }
+            }
+            
+            // Calculate average tokens
+            const avgTokens = {};
+            for (const model in modelTokens) {
+                avgTokens[model] = modelTokens[model] / modelCounts[model];
+            }
+            
+            // Sort models by token usage
+            const sortedModels = Object.keys(avgTokens)
+                .sort((a, b) => avgTokens[b] - avgTokens[a])
+                .slice(0, 10);
+            
+            const labels = sortedModels;
+            const data = sortedModels.map(model => avgTokens[model].toFixed(0));
+            const colors = getColorPalette(labels.length, 'green');
+            
+            // Create/update chart
+            const ctx = document.getElementById('tokenUsageChart').getContext('2d');
+            
+            if (charts.tokenUsage) {
+                charts.tokenUsage.data.labels = labels;
+                charts.tokenUsage.data.datasets[0].data = data;
+                charts.tokenUsage.data.datasets[0].backgroundColor = colors;
+                charts.tokenUsage.update();
+            } else {
+                charts.tokenUsage = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'Average Tokens Per Call',
+                            data: data,
+                            backgroundColor: colors,
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                title: {
+                                    display: true,
+                                    text: 'Average Tokens'
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        }
+
+        function updateEventTypesChart() {
+            // Count events by type
+            const eventTypeCounts = {};
+            
+            for (const event of filteredData) {
+                const type = event.event || 'unknown';
+                eventTypeCounts[type] = (eventTypeCounts[type] || 0) + 1;
+            }
+            
+            // Sort event types by count and take top 10
+            const sortedEventTypes = Object.keys(eventTypeCounts)
+                .sort((a, b) => eventTypeCounts[b] - eventTypeCounts[a])
+                .slice(0, 10);
+            
+            const labels = sortedEventTypes;
+            const data = sortedEventTypes.map(type => eventTypeCounts[type]);
+            const colors = getColorPalette(labels.length, 'purple');
+            
+            // Create/update chart
+            const ctx = document.getElementById('eventTypesChart').getContext('2d');
+            
+            if (charts.eventTypes) {
+                charts.eventTypes.data.labels = labels;
+                charts.eventTypes.data.datasets[0].data = data;
+                charts.eventTypes.data.datasets[0].backgroundColor = colors;
+                charts.eventTypes.update();
+            } else {
+                charts.eventTypes = new Chart(ctx, {
+                    type: 'pie',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            data: data,
+                            backgroundColor: colors,
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                position: 'right',
+                            }
+                        }
+                    }
+                });
+            }
+        }
+
+        function updateTopModelsTable() {
+            // Calculate model statistics
+            const modelStats = {};
+            let totalEvents = 0;
+            
+            for (const event of filteredData) {
+                if (event.properties && event.properties.main_model) {
+                    const model = event.properties.main_model;
+                    const cost = parseFloat(event.properties.cost) || 0;
+                    const tokens = parseInt(event.properties.total_tokens) || 0;
+                    
+                    if (!modelStats[model]) {
+                        modelStats[model] = {
+                            count: 0,
+                            cost: 0,
+                            tokens: 0
+                        };
+                    }
+                    
+                    modelStats[model].count++;
+                    modelStats[model].cost += cost;
+                    modelStats[model].tokens += tokens;
+                    
+                    totalEvents++;
+                }
+            }
+            
+            // Calculate percentages and averages
+            for (const model in modelStats) {
+                modelStats[model].percentage = (modelStats[model].count / totalEvents) * 100;
+                modelStats[model].avgTokens = modelStats[model].tokens / modelStats[model].count;
+            }
+            
+            // Sort models by count
+            const sortedModels = Object.keys(modelStats)
+                .sort((a, b) => modelStats[b].count - modelStats[a].count);
+            
+            // Generate table rows
+            const tableBody = document.getElementById('topModelsTableBody');
+            tableBody.innerHTML = '';
+            
+            sortedModels.forEach((model, index) => {
+                const stats = modelStats[model];
+                const row = document.createElement('tr');
+                
+                row.innerHTML = `
+                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${index + 1}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${model}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${stats.count.toLocaleString()}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${stats.percentage.toFixed(2)}%</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">$${stats.cost.toFixed(4)}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${stats.avgTokens.toFixed(0)}</td>
+                `;
+                
+                tableBody.appendChild(row);
+            });
+        }
+
+        function groupDataByTime(data, groupBy) {
+            const timeLabels = [];
+            const allCounts = {}; // all events by time period
+            const modelsByPeriod = {}; // events by model and time period
+            
+            // Determine how to format the time periods
+            let periodFormatter;
+            let increment;
+            
+            switch (groupBy) {
+                case 'week':
+                    periodFormatter = (date) => {
+                        const year = date.getFullYear();
+                        const weekNum = getWeekNumber(date);
+                        return `${year}-W${weekNum.toString().padStart(2, '0')}`;
+                    };
+                    increment = (date) => {
+                        date.setDate(date.getDate() + 7);
+                        return date;
+                    };
+                    break;
+                case 'month':
+                    periodFormatter = (date) => {
+                        return `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}`;
+                    };
+                    increment = (date) => {
+                        date.setMonth(date.getMonth() + 1);
+                        return date;
+                    };
+                    break;
+                case 'day':
+                default:
+                    periodFormatter = (date) => {
+                        return `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')}`;
+                    };
+                    increment = (date) => {
+                        date.setDate(date.getDate() + 1);
+                        return date;
+                    };
+                    break;
+            }
+            
+            // Generate time periods between start and end dates
+            const startDate = new Date(startDateInput.value);
+            const endDate = new Date(endDateInput.value);
+            
+            let currentDate = new Date(startDate);
+            while (currentDate <= endDate) {
+                timeLabels.push(periodFormatter(currentDate));
+                currentDate = increment(new Date(currentDate));
+            }
+            
+            // Count events by time period and model
+            for (const event of data) {
+                if (event.time) {
+                    const date = new Date(event.time * 1000); // Convert Unix timestamp to Date
+                    const period = periodFormatter(date);
+                    
+                    // Skip if period is not in our time range
+                    if (!timeLabels.includes(period)) continue;
+                    
+                    // Count all events
+                    allCounts[period] = (allCounts[period] || 0) + 1;
+                    
+                    // Count events by model
+                    if (event.properties && event.properties.main_model) {
+                        const model = event.properties.main_model;
+                        
+                        if (!modelsByPeriod[model]) {
+                            modelsByPeriod[model] = {};
+                        }
+                        
+                        modelsByPeriod[model][period] = (modelsByPeriod[model][period] || 0) + 1;
+                    }
+                }
+            }
+            
+            return {
+                timeLabels,
+                allCounts,
+                modelsByPeriod
+            };
+        }
+
+        function getWeekNumber(date) {
+            const firstDayOfYear = new Date(date.getFullYear(), 0, 1);
+            const pastDaysOfYear = (date - firstDayOfYear) / 86400000;
+            return Math.ceil((pastDaysOfYear + firstDayOfYear.getDay() + 1) / 7);
+        }
+
+        function getColorPalette(count, hueStart = 'blue') {
+            // Generate a color palette based on the number of items
+            const colors = [];
+            const hueStartValue = {
+                'blue': 210,
+                'green': 120,
+                'purple': 270,
+                'red': 0,
+                'orange': 30
+            }[hueStart] || 210;
+            
+            for (let i = 0; i < count; i++) {
+                const hue = (hueStartValue + (i * 360 / count)) % 360;
+                colors.push(`hsl(${hue}, 70%, 50%)`);
+            }
+            
+            return colors;
+        }
+    </script>
+</body>
+</html>
